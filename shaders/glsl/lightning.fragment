@@ -1,0 +1,14 @@
+// __multiversion__
+#include "fragmentVersionSimple.h"
+
+#include "function/tonemap.glsl"
+
+varying vec4 color;
+
+void main()
+{
+	vec4 base = color;
+	base.rgb = GBias(base.rgb);
+	base.rgb *= 1.5;
+	gl_FragColor = base;
+}

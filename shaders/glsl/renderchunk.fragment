@@ -1,0 +1,201 @@
+// __multiversion__
+// This signals the loading code to prepend either #version 100 or #version 300 es as apropriate.
+
+#include "fragmentVersionCentroid.h"
+
+#if __VERSION__ >= 300
+	#ifndef BYPASS_PIXEL_SHADER
+		#if defined(TEXEL_AA) && defined(TEXEL_AA_FEATURE)
+			_centroid in highp vec2 uv0;
+			_centroid in highp vec2 uv1;
+		#else
+			_centroid in vec2 uv0;
+			_centroid in vec2 uv1;
+		#endif
+	#endif
+#else
+	#ifndef BYPASS_PIXEL_SHADER
+		varying vec2 uv0;
+		varying vec2 uv1;
+	#endif
+#endif
+
+varying vec4 color;
+varying highp vec3 wpos;
+varying highp vec3 pp;
+varying float ng;
+varying float water;
+
+
+#ifdef LOW_PRECISION
+varying vec4 fogColor;
+varying vec4 fogCoIor;
+	varying vec4 fogColor2;
+  varying float moreFog;
+  varying float fdif;
+  varying float fray;
+  varying vec4 fogRcolor;
+varying float rFog;
+#endif
+
+#include "uniformShaderConstants.h"
+#include "uniformPerFrameConstants.h"
+#include "util.h"
+
+LAYOUT_BINDING(0) uniform sampler2D TEXTURE_0;
+LAYOUT_BINDING(1) uniform sampler2D TEXTURE_1;
+LAYOUT_BINDING(2) uniform sampler2D TEXTURE_2;
+
+float filmic_curve(float x){float A = 4.;
+float B = 1.1;
+float C = .3;
+float D = .8;
+float E = .04;
+float F = 1.05;
+return((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;}
+vec3 toneMap(vec3 clr){float W = 1.5;
+float Luma = dot(clr,vec3(.0));
+vec3 Chroma = clr-Luma;
+clr = (Chroma * vec3(1.78,1.62,1.0))+Luma;
+clr = vec3(filmic_curve(clr.r),filmic_curve(clr.g),filmic_curve(clr.b))/filmic_curve(W);
+return clr;}
+
+highp float hs( highp float n )
+{return fract(sin(n)*43758.5453);}
+highp float ns( in highp vec2 x )
+{highp vec2 p = floor(x);
+highp vec2 f = fract(x);
+f = f*f*(3.-2.*f);
+highp float n = p.x + p.y*57.;
+highp float res = mix(mix( hs(n+  0.), hs(n+  1.),f.x), mix( hs(n+ 57.), hs(n+ 58.),f.x),f.y);
+return res;}
+
+
+void main()
+{
+#ifdef BYPASS_PIXEL_SHADER
+	gl_FragColor = vec4(0, 0, 0, 0);
+	return;
+#else 
+
+#if USE_TEXEL_AA
+	vec4 diffuse = texture2D_AA(TEXTURE_0, uv0);
+#else
+	vec4 diffuse = texture2D(TEXTURE_0, uv0);
+#endif
+	
+#ifdef SEASONS_FAR
+	diffuse.a = 1.0;
+#endif
+
+#if USE_ALPHA_TEST
+	#ifdef ALPHA_TO_COVERAGE
+	#define ALPHA_THRESHOLD 0.05
+	#else
+	#define ALPHA_THRESHOLD 0.5
+	#endif
+	if(diffuse.a < ALPHA_THRESHOLD)
+		discard;
+#endif
+	
+vec4 inColor = color;
+
+float wk = texture2D(TEXTURE_1, vec2(0., 1.)).r;
+wk = clamp((wk-.5)*2., 0., 1.);
+
+float dd = wk*uv1.y; //day
+float ng = 1.-wk*uv1.y; //night
+float sd = .5-abs(.5-wk)*uv1.y; //sunset
+float rd = smoothstep(0.55,0.1,FOG_CONTROL.r)*uv1.y; //rain
+
+vec3 ddc = diffuse.rgb; //day
+vec3 sdc = mix(diffuse.rgb*vec3(2.0,0.3,-1.5),ddc,uv1.x*(1.0-dd)); //sunset
+vec3 rdc = mix(diffuse.rgb*vec3(0.2),ddc,uv1.x); //rain
+vec3 ngc = mix(diffuse.rgb*vec3(0.3,0.6,1.0)*1.1,ddc,uv1.x); //night
+
+vec3 wcr = mix(ddc, sdc, sd);
+wcr = mix(wcr, rdc, rd);
+wcr = mix(wcr, ngc, ng);
+
+diffuse.rgb = wcr;
+
+#if defined(BLEND)
+	diffuse.a *= inColor.a;
+#endif
+
+#if !defined(ALWAYS_LIT)
+	diffuse *= texture2D( TEXTURE_1, uv1 );
+#endif
+
+#ifndef SEASONS
+	#if !USE_ALPHA_TEST && !defined(BLEND)
+		diffuse.a = inColor.a;
+	#endif
+	
+	diffuse.rgb *= inColor.rgb;
+#else
+	vec2 uv = inColor.xy;
+	diffuse.rgb *= mix(vec3(1.0,1.0,1.0), texture2D( TEXTURE_2, uv).rgb*2.0, inColor.b);
+	diffuse.rgb *= inColor.aaa;
+	diffuse.a = 1.0;
+#endif
+
+
+
+
+float shadow = smoothstep(0.8749,0.86-0.07*rd,uv1.y);
+
+vec3 normpos = normalize(cross(dFdx(wpos.zyx),dFdy(wpos.zyx)));
+vec3 lightpos = normpos;
+lightpos += normpos/10.;
+float shadowmap = 1.-min(200.*clamp(uv1.y,1.,.012),1.);
+float shadowpos = shadowmap;
+if(color.a<0.){shadowmap = mix(shadowmap,1.,max(max(0.,-lightpos.b),max(0.,lightpos.b)));} else{shadowmap = mix(shadowmap,1.,max(max(0.,-lightpos.b),max(0.,lightpos.b)));}
+
+#ifndef ALPHA_TEST
+if(color.a!=0.0){
+diffuse.rgb *= mix(vec3(1.0),vec3(0.3,0.4,0.5)+uv1.x*vec3(0.7,0.6,0.5)*ng,shadowmap*(1.0-shadow)*(1.0-rd));}
+#endif
+if(color.a==0.0){
+diffuse.rgb *= mix(vec3(1.0),vec3(0.3,0.4,0.5)+uv1.x*vec3(0.7,0.6,0.5)*ng,shadowmap*(1.0-shadow)*(1.0-rd));}
+
+#ifndef SEASONS
+#ifdef BLEND
+if(color.b>color.r){
+
+diffuse = (vec4(0.0,0.2,0.45,0.0)-vec4(0.0,0.13,0.285,0.0)*ng)+vec4(0.2,0.05,-0.25,0.0)*rd*(1.0-ng);
+
+diffuse += vec4(fogColor.rgb*vec3(1.2,0.6,0.8)+vec3(-0.2,0.4,1.2)*ng, 0.1)*clamp(length(vec2(wpos.xz*0.2/wpos.y))/4.0,0.0,1.0)*(1.0-rd);
+
+diffuse += ns(vec2(atan(wpos.x,wpos.z)*16.0))*vec4(fogColor.rgb*vec3(1.2,0.6,0.8)+vec3(-0.2,0.4,1.2)*ng,0.2)*clamp(length(vec2(wpos.xz*0.185/wpos.y))/4.0,0.0,1.0)*(1.0-rd);
+
+diffuse += clamp(1.-length(-wpos.p*30.)/RENDER_DISTANCE*1.,0.,1.)*1.5*sd*length(-wpos.s)/RENDER_DISTANCE*1.0;
+
+diffuse.a += clamp(length(-wpos.stp*2.)/RENDER_DISTANCE*1.,1.,.45);
+
+diffuse += vec4(1.0,0.6,0.0,0.1)*uv1.x*ng;
+}
+#endif
+#endif
+
+diffuse.rgb *= mix(vec3(1.0),vec3(0.3,0.4,0.5)+uv1.x*vec3(0.7,0.6,0.5)*ng,shadow*(1.0-rd));
+
+
+diffuse.rgb += diffuse.rgb*pow(uv1.x*1.05,0.9)*vec3(0.6,-0.15,-0.6)*ng*
+uv1.y;
+diffuse.rgb += diffuse.rgb*pow(uv1.x*1.05,0.9)*vec3(0.6,-0.15,-0.6)*(1.0-uv1.y);
+
+diffuse.rgb = toneMap(diffuse.rgb);
+
+#ifdef LOW_PRECISION
+	diffuse.rgb = mix( diffuse.rgb, fogColor.rgb, fogColor.a );
+	diffuse.rgb = mix( diffuse.rgb, fogColor.rgb, moreFog );
+	diffuse.rgb = mix( diffuse.rgb, fogColor2.rgb, fdif );
+	diffuse.rgb = mix( diffuse.rgb, fogCoIor.rgb, fray );
+	diffuse.rgb = mix( diffuse.rgb, fogRcolor.rgb, rFog );
+#endif
+
+	gl_FragColor = diffuse;
+	
+#endif // BYPASS_PIXEL_SHADER
+}

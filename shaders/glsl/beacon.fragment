@@ -1,0 +1,19 @@
+// __multiversion__
+#include "fragmentVersionCentroidUV.h"
+#include "uniformEntityConstants.h"
+#include "uniformShaderConstants.h"
+#include "util.h"
+
+#include "function/tonemap.glsl"
+
+varying vec4 light;
+varying vec4 vertColor;
+
+void main() {
+	vec4 color = vertColor;
+
+	color.rgb = GBias(color.rgb);
+	color.rgb *= 1.5;
+
+	gl_FragColor = color;
+}

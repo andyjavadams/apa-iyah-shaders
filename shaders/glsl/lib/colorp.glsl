@@ -1,0 +1,30 @@
+/////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+// bsbe color and light processing
+/////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////
+
+//https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
+vec3 acesFilm(vec3 x) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+return (x * (a * x + b)) / (x * (c * x + d ) + e);
+}
+
+vec3 cg(vec3 x, float g){
+    return pow(x, vec3(g, g, g));
+}
+
+vec3 final(vec3 x){
+    x = cg(x, gamma);
+    x = acesFilm(x);
+    x = cg(x,(1./gamma));
+    float gray = length(x);
+    x = mix(vec3(gray, gray, gray), x, sat);
+return x;
+}

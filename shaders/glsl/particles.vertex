@@ -1,0 +1,52 @@
+// __multiversion__
+#include "vertexVersionCentroidUV.h"
+#include "uniformWorldConstants.h"
+#include "uniformEntityConstants.h"
+#include "uniformPerFrameConstants.h"
+
+#include "function/fog.glsl"
+
+attribute mediump vec4 POSITION;
+attribute vec4 COLOR;
+attribute vec2 TEXCOORD_0;
+
+varying vec4 color;
+varying vec4 haze;
+
+#ifdef GLINT
+varying vec2 layer1UV;
+varying vec2 layer2UV;
+
+vec2 calculateLayerUV(float offset, float rotation) {
+	vec2 uv = TEXCOORD_0;
+	uv -= 0.5;
+	float rsin = sin(rotation);
+	float rcos = cos(rotation);
+	uv = mat2(rcos, -rsin, rsin, rcos) * uv;
+	uv.x += offset;
+	uv += 0.5;
+
+	return uv * GLINT_UV_SCALE;
+}
+#endif
+
+void main() {
+	POS4 pos = WORLDVIEWPROJ * POSITION;
+	gl_Position = pos;
+
+	color = COLOR;
+	uv = TEXCOORD_0;
+
+	#ifdef USE_LIGHTING
+		color *= vec4(TILE_LIGHT_COLOR.xyz, 1.0);
+	#endif
+
+	#ifdef GLINT
+		layer1UV = calculateLayerUV(UV_OFFSET.x, UV_ROTATION.x);
+		layer2UV = calculateLayerUV(UV_OFFSET.y, UV_ROTATION.y);
+	#endif
+
+	haze.rgb = FOG_COLOR.rgb;
+	float len = clamp(length(pos.xyz) / RENDER_DISTANCE, 0.0, 1.0);
+	haze.a = CurveMap(len);
+}

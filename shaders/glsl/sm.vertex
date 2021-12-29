@@ -1,0 +1,19 @@
+// __multiversion__
+//#version 100 or #version 300 es
+#include "vertexVersionCentroidUV.h"
+#include "uniformWorldConstants.h"
+attribute POS4 POSITION;
+attribute vec2 TEXCOORD_0;
+#ifdef UNIVERSAL
+varying vec3 w_pos;
+#endif
+void main()
+{
+POS4 pos = POSITION * vec4(7.0, 1.0, 7.0, 1.0);
+MAT4 wp = WORLDVIEWPROJ;
+#ifdef UNIVERSAL
+w_pos = POSITION.xyz;
+#endif
+gl_Position = wp * pos;
+uv = TEXCOORD_0;
+}

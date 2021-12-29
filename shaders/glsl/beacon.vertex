@@ -1,0 +1,39 @@
+// __multiversion__
+#include "vertexVersionCentroidUV.h"
+#include "uniformWorldConstants.h"
+#include "uniformEntityConstants.h"
+#include "uniformPerFrameConstants.h"
+
+#ifdef USE_SKINNING
+#include "uniformAnimationConstants.h"
+#endif
+
+attribute vec4 COLOR;
+attribute mediump vec4 POSITION;
+
+#if defined(USE_SKINNING)
+    #ifdef MCPE_PLATFORM_NX
+        attribute uint BONEID_0;
+    #else
+        attribute float BONEID_0;
+    #endif
+#endif
+
+varying vec4 vertColor;
+varying vec4 light;
+
+void main() {
+    vertColor = COLOR;
+
+    #ifdef USE_SKINNING
+        #if defined(LARGE_VERTEX_SHADER_UNIFORMS)
+            POS4 pos = WORLDVIEWPROJ * BONES[int(BONEID_0)] * POSITION;
+        #else
+            POS4 pos = WORLDVIEWPROJ * BONE * POSITION;
+        #endif
+    #else
+        POS4 pos = WORLDVIEWPROJ * POSITION;
+    #endif
+
+    gl_Position = pos;
+}

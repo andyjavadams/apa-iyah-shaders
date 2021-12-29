@@ -1,0 +1,47 @@
+// __multiversion__
+//#version 100 or #version 300 es
+#include "fragmentVersionCentroid.h"
+#if __VERSION__ >= 300
+#if defined(TEXEL_AA) && defined(TEXEL_AA_FEATURE)
+_centroid in highp vec2 uv;
+#else
+_centroid in vec2 uv;
+#endif
+#else
+varying vec2 uv;
+#endif
+#ifdef UNIVERSAL
+varying vec3 w_pos;
+#endif
+#include "uniformWorldConstants.h"
+#include "uniformPerFrameConstants.h"
+#include "uniformShaderConstants.h"
+#include "uniformRenderChunkConstants.h"
+#include "util.h"
+LAYOUT_BINDING(0) uniform sampler2D TEXTURE_0;
+void main()
+{
+#if !defined(TEXEL_AA) || !defined(TEXEL_AA_FEATURE)
+vec4 diffuse = texture2D( TEXTURE_0, uv );
+#else
+vec4 diffuse = texture2D_AA(TEXTURE_0, uv );
+#endif
+#ifdef UNIVERSAL
+float day_f = pow(max(min(1.0-FOG_COLOR.b*1.2,1.0),0.0),0.5);
+float night_f = pow(max(min(1.0-FOG_COLOR.r*1.5,1.0),0.0),1.2);
+float rain_f = smoothstep(0.55,0.1,FOG_CONTROL.r);
+float pos_inner =1.0-pow(length(w_pos*60.0),night_f*30.0+0.6);
+float pos_outer =1.0-pow(length(w_pos*2.0),0.5*max(pow(FOG_COLOR.g,6.0),0.5));
+float range_outer = pow(FOG_CONTROL.y,5.0);
+float range_inner = max(min((pos_inner)*range_outer,1.0),0.0);
+float range_set = min(max(pos_outer*range_outer,0.0),1.0);
+vec4 day_color = vec4( 1.0, 0.3, 0.0, range_set);
+vec4 night_color = vec4( 0.0, 0.85, 1.0, range_set);
+vec4 sun_color = day_color;
+vec4 rain_color = vec4( FOG_COLOR.rgb, range_set);
+vec4 in_sun_color = vec4(1.0);
+vec4 color_cycle = mix(mix(mix(day_color,sun_color,day_f),night_color,night_f),rain_color,rain_f);
+vec4 final = mix(color_cycle, in_sun_color, range_inner);
+gl_FragColor = final;
+#endif
+}

@@ -1,0 +1,37 @@
+// __multiversion__
+// This signals the loading code to prepend either #version 100 or #version 300 es as apropriate.
+#include "vertexVersionSimple.h"
+#include "uniformWorldConstants.h"
+#include "uniformPerFrameConstants.h"
+#include "uniformShaderConstants.h"
+#include "uniformRenderChunkConstants.h"
+#include "util.h"
+attribute mediump vec4 POSITION;
+attribute vec4 COLOR;
+varying vec4 color;
+#ifdef UNIVERSAL
+varying vec3 w_pos;
+#endif
+highp float maps(highp float x, highp float z){
+float r0 = sin(x+(z*0.5+(x-3.0)));
+float r1 = sin(z+(x*0.5+(z-3.0)));
+float r2 = sin(x+cos(z+sin(x+z)));
+float r3 = cos(z+sin(x+sin(z+x)));
+float r4 = sin(r0-cos(r2+sin(r0+r1)));
+float r5 = cos(r1-cos(r3+sin(r1+r2)));
+return sin(r0+r1-r2+r3-r4+r5);
+}
+void main()
+{
+POS4 pp =POSITION;
+gl_Position = WORLDVIEWPROJ * pp;
+#ifdef UNIVERSAL
+w_pos =POSITION.xyz;
+#endif
+highp vec3 cp = w_pos;
+highp float c1 = abs(cos(cp.x*2.0+cp.z*1.9+TIME*0.71)* 1.7+cos(cp.x*2.8-cp.z*1.3+TIME*0.81));
+highp float c2 = abs(cos(cp.x*6.0+cp.z*3.5+TIME*0.91)* 1.7+cos(cp.x*4.8-cp.z*3.3+TIME*1.0))*0.4;
+highp float c3 = abs(cos(cp.x*4.0+cp.z*5.0+TIME*0.31)* 1.7+cos(cp.x*5.8-cp.z*6.3+TIME*2.0))*0.05;
+highp float a1 = max(abs((cos(cp.x*0.20+cp.z*0.3+TIME*0.81)* 1.7+cos(cp.x*0.8-cp.z*0.3+TIME*1.0))*c2),0.5);
+color = (COLOR+vec4(c3,c2,c1,0.0))*a1;
+}

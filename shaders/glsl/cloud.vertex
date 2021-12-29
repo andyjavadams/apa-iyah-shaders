@@ -1,0 +1,88 @@
+// __multiversion__
+// This signals the loading code to prepend either #version 100 or #version 300 es as apropriate.
+
+// SSPE BY @RyFol
+// USE OF ANY CODE IS NOT PERMITTED
+
+// Base Cloud code made by TRXDev
+
+// To use centroid sampling we need to have version 300 es shaders, which requires changing:
+// attribute to in
+// varying to out when in vertex shaders or in when in fragment shaders
+// defining an out vec4 FragColor and replacing uses of gl_FragColor with FragColor
+// texture2D to texture
+#if __VERSION__ >= 300
+#define attribute in
+#define varying out
+
+#else
+
+
+#endif
+
+uniform MAT4 WORLDVIEWPROJ;
+uniform MAT4 WORLD;
+uniform float RENDER_DISTANCE;
+uniform vec4 FOG_COLOR;
+uniform vec4 CURRENT_COLOR;
+uniform highp float TIME;
+
+attribute mediump vec4 POSITION;
+attribute vec4 COLOR;
+
+varying vec4 color;
+
+const float fogNear = 9999.0;
+const float fogNear2 = 2.0;
+const float fogNear3 = 1.0;
+
+const vec3 inverseLightDirection = vec3(0.52, 0.88, 0.0);
+const vec3 inverseLightDirection2 = vec3(801.502, 660.88, 770.0);
+float optimal = 0.311;
+float optimal2 = 3.311;
+float height = 16.0;
+
+mat3 extension = mat3(-2.001, 4.6, 0.21, 0.0, 12.0, 2.0, 2.0, 9.0, 5.0);
+mat3 extension2 = mat3(-7.001, 4.6, 0.21, 0.0, 12.0, 2.0, 2.0, 9.0, 6.0);
+
+mat3 extension3 = mat3(-9.001, 4.6, 0.21, 0.0, 12.0, 2.0, 2.0, 9.0, 6.0);
+mat3 extension4 = mat3(-394.001, 4.6, 0.21, 0.0, 12.0, 2.0, 2.0, 9.0, 6.0);
+mat3 extension5 = mat3(-203.001, 4.6, 0.21, 0.0, 62.0, 2.0, 2.0, 9.0, 6.0);
+mat3 extension6 = mat3(-107.001, 58.6, 4.21, 1.0, 20.0, 2.0, 6.0, 9.0, 6.0);
+mat3 extension7 = mat3(-99.001, 47.6, 3.21, 1.0, 32.0, 2.0, 5.0, 9.0, 6.0);
+mat3 extension8 = mat3(-80.001, 36.6, 2.21, 1.0, 42.0, 4.0, 2.0, 9.0, 6.0);
+mat3 extension9 = mat3(-74.001, 25.6, 1.21, 1.0, 52.0, 3.0, 2.0, 9.0, 226.0);
+
+
+void main()
+{
+   
+	  POS4 worldPos = WORLD * POSITION;
+    POS4 SSPE1 = POSITION;
+    POS4 SSPE2 = POSITION;
+    SSPE1.y += height;
+    POS4 pos = WORLDVIEWPROJ * POSITION;
+ 	   gl_Position = WORLDVIEWPROJ * POSITION;
+
+    vec3 cpos = SSPE2.xyz * optimal;
+    cpos *= extension;
+
+   	float cloudWav = 4.0;
+    cloudWav = sin((TIME * 0.23) + cpos.x * 2.0) + sin((TIME * 0.23) + cpos.z * 0.5) + sin((TIME * 0.23) + cpos.x * 8.9) + sin((TIME * 0.23) + cpos.z * 0.23) + sin((TIME * 0.3) + cpos.x * 0.65) + sin((TIME * 0.23) + cpos.z * 0.25) + sin((TIME * 0.23) + (cpos.x * 1.990) * (cpos.x * 3.1)) + sin((TIME * 0.23) + cpos.x * 0.14) + sin((TIME * 0.23) + cpos.x * 1.9) + sin((TIME * 0.23) + cpos.x * 2.3);
+
+float cloudWav2 = 554.0;
+    cloudWav = sin((TIME * 0.23) + cpos.x * 2.0) + sin((TIME * 0.13) + cpos.z * 0.5) + sin((TIME * 0.23) + cpos.x * 8.9) + sin((TIME * 0.3) + cpos.z * 0.3) + sin((TIME * 0.3) + cpos.x * 0.65) + sin((TIME * 0.3) + cpos.z * 0.25) + sin((TIME * 0.23) + (cpos.x * 1.990) * (cpos.x * 3.1)) + sin((TIME * 0.23) + cpos.x * 0.14) + sin((TIME * 0.3) + cpos.x * 1.9) + sin((TIME * 0.3) + cpos.x * 2.3);
+
+   vec4 dayColor = vec4( 0.555, 0.555, 0.555, CURRENT_COLOR.a );
+   vec4 nightColor = CURRENT_COLOR + vec4(0.551, 0.551, 0.551, CURRENT_COLOR.a);
+ 	  color = mix(nightColor * dayColor, FOG_COLOR, COLOR.r );
+
+
+ 	float depth = length(worldPos.xyz) / 100.0;
+ 	float fog = max(depth - fogNear, 0.400);
+
+ 	color.a *= cloudWav,cloudWav2;
+  color.a *= 0.2 - fog;
+
+  if(depth < 80.0 && depth > 95.0){color *= vec4(25.0, 5.0, 4.0, 1.35);}
+}

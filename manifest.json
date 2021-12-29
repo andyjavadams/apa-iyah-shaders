@@ -1,0 +1,19 @@
+{
+   "format_version" : 1,
+   "header" : {
+      "description" : "Ini cuma remake banh, kreator nya bukan saya, saya Andy:v",
+      "name" : "Apa iyah shader",
+      "platform_locked" : false,
+      "uuid" : "c62eb52e-43cd-4c74-754c-b32325702a4a",
+      "version" : [ 4, 0, 0 ]
+   },
+   "min_engine_version": [1, 12, 0],
+   "modules" : [
+      {
+         "description" : "Jangan lupa folou ig saya @_andy.offc",
+         "type" : "resources",
+         "uuid" : "525524c0-685b-835b-0f96-ae7d5245909c",
+         "version" : [ 4, 0, 0 ]
+      }
+   ]
+}

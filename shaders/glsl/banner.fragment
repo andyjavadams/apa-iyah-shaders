@@ -1,0 +1,59 @@
+// __multiversion__
+// #version 100 #version 300.
+#include "fragmentVersionCentroid.h"
+#include "uniformShaderConstants.h"
+LAYOUT_BINDING(0) uniform sampler2D TEXTURE_0;
+#if __VERSION__ >= 300
+_centroid varying vec4 uv;
+#else
+varying vec4 uv;
+#endif
+#ifdef ENABLE_FOG
+varying vec4 fogColor;
+#endif
+#ifdef ENABLE_LIGHT
+varying vec4 light;
+#endif
+#ifndef DISABLE_TINTING
+varying vec4 color;
+#endif
+
+
+float filmic_curve(float x){float A = 4.;
+float B = 1.1;
+float C = .3;
+float D = .8;
+float E = .04;
+float F = 1.05;
+return((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;}
+vec3 toneMap(vec3 clr){float W = 1.5;
+float Luma = dot(clr,vec3(.0));
+vec3 Chroma = clr-Luma;
+clr = (Chroma * vec3(1.78,1.62,1.0))+Luma;
+clr = vec3(filmic_curve(clr.r),filmic_curve(clr.g),filmic_curve(clr.b))/filmic_curve(W);
+return clr;}
+
+
+void main()
+{
+vec4 diffuse = texture2D(TEXTURE_0,uv.xy);
+vec4 base = texture2D(TEXTURE_0,uv.zw);
+#ifndef DISABLE_TINTING
+base.a = mix(diffuse.r*diffuse.a,diffuse.a,color.a);
+base.rgb *= color.rgb;
+#endif
+#ifdef ENABLE_LIGHT
+base.rgb *= light.rgb;
+#endif
+
+//tonemap
+base.rgb = toneMap(base.rgb);
+
+#ifdef ENABLE_FOG
+base.rgb = mix(base.rgb,fogColor.rgb,fogColor.a);
+#endif
+#ifdef UI_ENTITY
+base.a *= HUD_OPACITY;
+#endif
+gl_FragColor = base;
+}
