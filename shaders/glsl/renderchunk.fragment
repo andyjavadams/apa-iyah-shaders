@@ -21,55 +21,251 @@
 #endif
 
 varying vec4 color;
-varying highp vec3 wpos;
-varying highp vec3 pp;
-varying float ng;
-varying float water;
-
 
 #ifdef LOW_PRECISION
+   varying highp vec3 look;
+   varying highp vec3 position;
+   varying highp vec4 skyColor;
+   varying highp vec3 worldpos;
+#endif
+
+varying float flag_waterplane;
+varying float new_fog;
+
+varying vec3 screen;
+
+#ifdef FOG
 varying vec4 fogColor;
-varying vec4 fogCoIor;
-	varying vec4 fogColor2;
-  varying float moreFog;
-  varying float fdif;
-  varying float fray;
-  varying vec4 fogRcolor;
-varying float rFog;
+#endif
+
+#ifdef LOW_PRECISION
+    #include"uniformPerFrameConstants.h"
 #endif
 
 #include "uniformShaderConstants.h"
-#include "uniformPerFrameConstants.h"
 #include "util.h"
 
 LAYOUT_BINDING(0) uniform sampler2D TEXTURE_0;
 LAYOUT_BINDING(1) uniform sampler2D TEXTURE_1;
 LAYOUT_BINDING(2) uniform sampler2D TEXTURE_2;
 
-float filmic_curve(float x){float A = 4.;
-float B = 1.1;
-float C = .3;
-float D = .8;
-float E = .04;
-float F = 1.05;
-return((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;}
-vec3 toneMap(vec3 clr){float W = 1.5;
-float Luma = dot(clr,vec3(.0));
-vec3 Chroma = clr-Luma;
-clr = (Chroma * vec3(1.78,1.62,1.0))+Luma;
-clr = vec3(filmic_curve(clr.r),filmic_curve(clr.g),filmic_curve(clr.b))/filmic_curve(W);
-return clr;}
+#ifdef LOW_PRECISION
+highp float random(highp float x){
+	return fract(sin(x) * 428.123);
+}
 
-highp float hs( highp float n )
-{return fract(sin(n)*43758.5453);}
-highp float ns( in highp vec2 x )
-{highp vec2 p = floor(x);
-highp vec2 f = fract(x);
-f = f*f*(3.-2.*f);
-highp float n = p.x + p.y*57.;
-highp float res = mix(mix( hs(n+  0.), hs(n+  1.),f.x), mix( hs(n+ 57.), hs(n+ 58.),f.x),f.y);
-return res;}
+highp float srandom(highp float x){
+	highp float r1 = random(floor(x));
+	highp float r2 = random(floor(x) + 1.0);
+	return mix(r1, r2, smoothstep(0.0, 1.0, fract(x)));
+}
 
+highp float srandom2d(highp float x, highp float y){
+	highp float r1 = srandom(x + floor(y) * 100.0);
+	highp float r2 = srandom(x + floor(y) * 100.0 + 100.0);
+	return mix(r1, r2, smoothstep(0.0, 1.0, fract(y)));
+}
+
+highp float angle_between_vecs(highp vec3 v1, highp vec3 v2){
+ return acos((v1.x * v2.x + v1.y * v2.y + v1.z * v2.z) / length(v1) / length(v2));
+}
+
+highp vec2 normalmapuv(highp vec3 coords)
+{
+  highp vec2 uv = uv0;
+  highp vec2 pos = fract(position.xz);
+
+  return uv - pos / 8.0 + fract(coords.xz / 10.0) / 8.0;
+}
+
+highp vec3 normalfromcolor(highp vec4 color)
+{
+  return vec3(color.r - 0.5, color.b, color.g - 0.5);
+}
+
+highp vec4 skymap(highp vec3 coords, vec4 ambient, vec4 light){
+
+coords /= 10.0;
+highp float cloud_intense = srandom2d(coords.x, coords.z);
+highp float cloud_modifier = srandom2d(coords.x, coords.z + 1000.0);
+
+vec4 clr = vec4(0.2, 0.4, 0.6, 0.0);
+float CM = 0.2*cloud_modifier;
+
+highp vec4 skycolor = vec4(clr.r, clr.g+CM, clr.b, 0.25) + clamp(cloud_intense * 2.0 - 0.5, 0.0, cloud_modifier) * 0.65 * light * vec4(1.0, 1.0, 1.0, 0.8);
+
+return skycolor;
+}
+
+highp vec3 water2layermap(highp vec3 pos){
+highp vec4 normaltex1 = texture2D(TEXTURE_0, normalmapuv(pos + vec3(0.4, 0.0, -.1) * TIME * 0.88));
+highp vec4 normaltex2 = texture2D(TEXTURE_0, normalmapuv(pos + vec3(-.1, 0.0, 0.75) * TIME * 0.88));
+highp vec3 normal = normalize(normalfromcolor(normaltex1) + normalfromcolor(normaltex2) + vec3(0.0, 1.0, 0.0));
+return normal;
+}
+
+highp vec3 water3layermap(highp vec3 pos)
+{
+  highp vec4 normaltex1 = texture2D(TEXTURE_0, 
+  normalmapuv(pos + vec3(0.40, 0.0, -0.10) * TIME * 0.880));
+  highp vec4 normaltex2 = texture2D(TEXTURE_0,  
+  normalmapuv(pos + vec3(-0.10, 0.0, 0.750) * TIME * 0.880));
+  highp vec3 normal = normalize(normalfromcolor(normaltex1) +
+  normalize(normalfromcolor(normaltex2)) + vec3(0.0, 1.0, 0.0));
+
+  return normalize(normal);
+}
+
+vec4 watersurface(vec4 ambient, vec4 light){
+highp vec3 normal;
+highp vec3 pos = position;
+
+normal = water2layermap(pos);
+
+highp vec3 reflected = reflect(look, normal);
+
+vec4 surface = skymap(look + normalize(reflected) * 40.0, ambient, light);
+
+float sunreflect = angle_between_vecs(reflected, vec3(0.0, 1.0, -2.5));
+float nolight = (1.0 - uv1.x);
+
+if(sunreflect < 0.1){
+surface += (vec4(10.0)*nolight)*uv1.y;
+}
+
+return ambient *= surface;
+}
+#endif
+
+float filmic_curve(float x) {
+float A = 0.22;
+float B = 0.3;
+float C = 0.15 * 1.0;
+float D = 0.4 * 1.77;
+float E = 0.01 * 1.0;
+float F = 0.1;
+return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F; 
+} 
+
+vec3 toneMap(vec3 clr) { 	
+float W = 1.3 / 1.0;
+
+float Luma = dot(clr, vec3(0.0));
+vec3 Chroma = clr - Luma;
+clr = (Chroma * vec3(2.2, 2.3, 2.4)) + Luma;
+clr = vec3(filmic_curve(clr.r), filmic_curve(clr.g), filmic_curve(clr.b)) / filmic_curve(W);
+
+return clr; 
+}
+
+vec3 day = vec3(1.0);
+vec3 night = vec3(0.6,0.73,1.0);
+vec3 sun = vec3(1.0,0.44,0.0);
+
+vec4 moonLight(vec4 light, float null){
+
+float amount = 1.05;
+float colorDesat = dot(light.rgb, vec3(0.25));
+
+light.rgb = mix(light.rgb, vec3(colorDesat) * night, amount * null);
+
+return light;}
+
+vec4 dayLight(vec4 light, float null){
+
+vec4 lum_day = light * vec4(vec3(day), 1.0);
+vec4 final_day = lum_day;
+
+return final_day;}
+
+vec4 sunLight(vec4 light, float null){
+
+float rain = (1.0-pow(FOG_CONTROL.y,5.0));
+light.rgb = mix(light.rgb, light.rgb*max(sun,vec3(1.0)*rain), null);
+
+return light;}
+
+bool getNetherMask(vec4 ambient){
+if(ambient.r > ambient.b && ambient.r < 0.5 && ambient.b < 0.05){
+return true;
+} else {
+return false;}
+}
+
+bool getTheEndMask(vec4 ambient){
+if(ambient.r > ambient.g && ambient.b > ambient.g && ambient.r < 0.05 && ambient.b < 0.05 && ambient.g < 0.05){
+return true;
+} else {
+return false;}
+}
+
+bool getUnWaterMask(vec4 ambient){
+if(ambient.b > ambient.r*2.5 &&  ambient.b*3.0 > ambient.g){
+return true;
+} else {
+return false;}
+}
+
+#ifndef BYPASS_PIXEL_SHADER
+vec3 calc_light(vec3 color){
+float lum = (color.r + color.g + color.b) - uv1.y*3.0;
+vec3 light = (color.rgb) * lum;
+return light.rgb;}
+
+bool getSandMask(vec2 uv){
+vec2 matID = floor(vec2(uv.x * 32.0, uv.y * 32.0));
+if((matID.x>=0.0&&matID.y>=12.0&&
+     matID.x<=3.0&&matID.y<=12.0)||
+    (matID.x>=14.0&&matID.y>=11.0&&
+     matID.x<=19.0&&matID.y<=11.0)||
+    (matID.x>=28.0&&matID.y>=11.0&&
+     matID.x<=30.0&&matID.y<=11.0)){
+return true;
+} else {
+return false;}
+}
+
+bool getSnowMask(vec2 uv){
+vec2 matID = floor(vec2(uv.x * 32.0, uv.y * 32.0));
+if(matID.x==14.0&&matID.y==12.0){
+return true;
+} else {
+return false;}
+}
+
+bool getGrassSideSnowedMask(vec2 uv){
+vec2 matID = floor(vec2(uv.x * 32.0, uv.y * 32.0));
+if(matID.x==26.0&&matID.y==6.0){
+return true;
+} else {
+return false;}
+}
+#endif
+
+highp float E_UNDW() {
+
+  highp float SCALE = 0.4;
+  highp float TAU = 6.283;
+  int MAX_ITER = 3;
+
+	highp float time = TIME * .5+23.0;
+    // uv should be the 0-1 uv of texture...
+	vec2 uv = position.xz * SCALE;
+  vec2 p, i; p = i = mod(uv*TAU, TAU)-250.0;
+	highp float c = 1.0;
+	highp float inten = .005;
+
+	for (int n = 0; n < MAX_ITER; n++) 
+	{
+		highp float t = time * (1.0 - (3.5 / float(n+1)));
+		i = p + vec2(cos(t - i.x) + sin(t + i.y), sin(t - i.y) + cos(t + i.x));
+		c += 1.0/length(vec2(p.x / (sin(i.x+t)/inten),p.y / (cos(i.y+t)/inten)));
+	}
+	c /= float(MAX_ITER);
+	c = 1.17-pow(c, 1.4);
+	float colour = clamp(pow(abs(c), 8.0), 0.0, 0.7 ) * ( uv1.y + 0.1 ) * ( 1.0 - uv1.x );
+	return colour;
+}
 
 void main()
 {
@@ -84,6 +280,8 @@ void main()
 	vec4 diffuse = texture2D(TEXTURE_0, uv0);
 #endif
 	
+vec4 uvl = texture2D(TEXTURE_1, vec2(uv1.x*0.5,uv1.y));
+
 #ifdef SEASONS_FAR
 	diffuse.a = 1.0;
 #endif
@@ -99,25 +297,34 @@ void main()
 #endif
 	
 vec4 inColor = color;
+vec4 transf = texture2D(TEXTURE_1, vec2(0.0,1.0));
+float setTime = (transf.r - 0.5) / 0.5;
+setTime = max(0.0, min(1.0, setTime));
 
-float wk = texture2D(TEXTURE_1, vec2(0., 1.)).r;
-wk = clamp((wk-.5)*2., 0., 1.);
+float nolight = (1.0 - uv1.x);
+float timeNoon = uv1.y *(1.0-setTime);
+float timeSunset = (0.5-abs(0.5-setTime))*uv1.y;
+float timeMidnight = uv1.y *(1.0-setTime);
+float rain = (1.0-pow(FOG_CONTROL.y,5.0))*uv1.y;
 
-float dd = wk*uv1.y; //day
-float ng = 1.-wk*uv1.y; //night
-float sd = .5-abs(.5-wk)*uv1.y; //sunset
-float rd = smoothstep(0.55,0.1,FOG_CONTROL.r)*uv1.y; //rain
+float tNoon = timeNoon*timeNoon;
+float tSunset = timeSunset*timeSunset;
+float tMidnight = timeMidnight*timeMidnight;
 
-vec3 ddc = diffuse.rgb; //day
-vec3 sdc = mix(diffuse.rgb*vec3(2.0,0.3,-1.5),ddc,uv1.x*(1.0-dd)); //sunset
-vec3 rdc = mix(diffuse.rgb*vec3(0.2),ddc,uv1.x); //rain
-vec3 ngc = mix(diffuse.rgb*vec3(0.3,0.6,1.0)*1.1,ddc,uv1.x); //night
+float nether = 0.0;
+float fog_flag = 0.0;
 
-vec3 wcr = mix(ddc, sdc, sd);
-wcr = mix(wcr, rdc, rd);
-wcr = mix(wcr, ngc, ng);
+float shadow = 0.0;
+float shdX = color.g;
+float biasY = .8810;
+float biasX = .663;
 
-diffuse.rgb = wcr;
+vec3 tl = vec3(0.0, 0.0, 0.0);
+vec3 tlc = vec3(0.6, 0.3, 0.0);
+vec3 AS = vec3(0.0, 0.0, 0.0);
+vec3 ASc = vec3(0.0,0.0,1.0)*0.5;
+
+vec4 fog = FOG_COLOR;
 
 #if defined(BLEND)
 	diffuse.a *= inColor.a;
@@ -140,59 +347,103 @@ diffuse.rgb = wcr;
 	diffuse.a = 1.0;
 #endif
 
+if(getUnWaterMask(fog)){rain = 0.0;}
+float noshd = (1.0-uv1.x*1.5*tMidnight);
+float noshd2 = (1.0-max(0.0,1.0*rain));
 
-
-
-float shadow = smoothstep(0.8749,0.86-0.07*rd,uv1.y);
-
-vec3 normpos = normalize(cross(dFdx(wpos.zyx),dFdy(wpos.zyx)));
-vec3 lightpos = normpos;
-lightpos += normpos/10.;
-float shadowmap = 1.-min(200.*clamp(uv1.y,1.,.012),1.);
-float shadowpos = shadowmap;
-if(color.a<0.){shadowmap = mix(shadowmap,1.,max(max(0.,-lightpos.b),max(0.,lightpos.b)));} else{shadowmap = mix(shadowmap,1.,max(max(0.,-lightpos.b),max(0.,lightpos.b)));}
-
-#ifndef ALPHA_TEST
-if(color.a!=0.0){
-diffuse.rgb *= mix(vec3(1.0),vec3(0.3,0.4,0.5)+uv1.x*vec3(0.7,0.6,0.5)*ng,shadowmap*(1.0-shadow)*(1.0-rd));}
-#endif
-if(color.a==0.0){
-diffuse.rgb *= mix(vec3(1.0),vec3(0.3,0.4,0.5)+uv1.x*vec3(0.7,0.6,0.5)*ng,shadowmap*(1.0-shadow)*(1.0-rd));}
-
-#ifndef SEASONS
 #ifdef BLEND
-if(color.b>color.r){
-
-diffuse = (vec4(0.0,0.2,0.45,0.0)-vec4(0.0,0.13,0.285,0.0)*ng)+vec4(0.2,0.05,-0.25,0.0)*rd*(1.0-ng);
-
-diffuse += vec4(fogColor.rgb*vec3(1.2,0.6,0.8)+vec3(-0.2,0.4,1.2)*ng, 0.1)*clamp(length(vec2(wpos.xz*0.2/wpos.y))/4.0,0.0,1.0)*(1.0-rd);
-
-diffuse += ns(vec2(atan(wpos.x,wpos.z)*16.0))*vec4(fogColor.rgb*vec3(1.2,0.6,0.8)+vec3(-0.2,0.4,1.2)*ng,0.2)*clamp(length(vec2(wpos.xz*0.185/wpos.y))/4.0,0.0,1.0)*(1.0-rd);
-
-diffuse += clamp(1.-length(-wpos.p*30.)/RENDER_DISTANCE*1.,0.,1.)*1.5*sd*length(-wpos.s)/RENDER_DISTANCE*1.0;
-
-diffuse.a += clamp(length(-wpos.stp*2.)/RENDER_DISTANCE*1.,1.,.45);
-
-diffuse += vec4(1.0,0.6,0.0,0.1)*uv1.x*ng;
+if(color.b > color.r + color.g)
+{
+  diffuse = watersurface(uvl, uvl);
+night.rgb *= 0.5;
+if(getNetherMask(FOG_COLOR)){
+diffuse.rgb = vec3(1.0,0.0,0.0);}
 }
 #endif
+
+if(color.a==.0){
+diffuse.rgb *= 1.15;
+shdX = color.g*1.4;
+biasY = .8751;
+}
+
+if(getSandMask(uv0)){
+shdX *= 0.82;
+}
+
+if(getSnowMask(uv0)){
+shdX *= 0.785;
+}
+
+if(getGrassSideSnowedMask(uv0)){
+shdX *= 0.80;
+}
+
+if(getTheEndMask(fog)){
+tlc.rgb = vec3(0.5,0.0,1.5);
+ASc.rgb = diffuse.rgb * vec3(5.0,0.0,10.0);
+diffuse.rgb *= 0.25;
+}
+
+tl.rgb = calc_light(tlc.rgb*3.0)*pow(uv1.x*0.9,3.0);
+diffuse.rgb += (diffuse.rgb * (tlc.rgb*3.0-1.0) * pow(uv1.x*0.9, 0.5))*tMidnight;
+if((uv1.y<biasY-0.0005)||(shdX<biasX-0.0000))
+{diffuse.rgb += diffuse.rgb * tl;}
+
+if(getNetherMask(fog)){
+nether = 1.0;
+diffuse.rgb *= 0.3 + tl * 0.25;
+}
+
+if(nether==0.0){
+AS.rgb = ASc.rgb;
+}
+
+if((uv1.y<biasY-0.0005)||(shdX<biasX-0.0000))
+{shadow = 0.05;}
+if((uv1.y<biasY-0.0010)||(shdX<biasX-0.0030))
+{shadow = 0.10;}
+if((uv1.y<biasY-0.0015)||(shdX<biasX-0.0050))
+{shadow = 0.15;}
+if((uv1.y<biasY-0.0020)||(shdX<biasX-0.0080))
+{shadow = 0.20;}
+if((uv1.y<biasY-0.0025)||(shdX<biasX-0.0100))
+{shadow = 0.25;}
+if((uv1.y<biasY-0.0030)||(shdX<biasX-0.0130))
+{shadow = 0.30;}
+if((uv1.y<biasY-0.0035)||(shdX<biasX-0.0150))
+{shadow = 0.35;}
+if((uv1.y<biasY-0.0040)||(shdX<biasX-0.0180))
+{shadow = 0.40;}
+if((uv1.y<biasY-0.0045)||(shdX<biasX-0.0200))
+{shadow = 0.45;}
+if((uv1.y<biasY-0.0050)||(shdX<biasX-0.0230))
+{shadow = 0.50;}
+
+if(FOG_CONTROL.x < 0.55 && FOG_CONTROL.x > 0.1){
+fog_flag = 1.0;
+sun.rgb *= diffuse.rgb;
+if(fog.r > 0.15 && fog.g > 0.15){
+if(FOG_CONTROL.x < 0.55 && FOG_CONTROL.x > 0.1){
+diffuse.rgb *= vec3(0.5);
+diffuse.rgb = mix(diffuse.rgb,fog.rgb/day,new_fog*4.0);
+}}}
+
+diffuse.rgb = mix(diffuse.rgb,fog.rgb/vec3(2.4),new_fog);
+diffuse.rgb = mix(diffuse.rgb, new_fog*AS, shadow*noshd2*noshd);
+diffuse.rgb = toneMap(diffuse.rgb);
+diffuse.rgb *= 1.0 - max(0.0,max(0.0,length(screen.st))-0.60);
+
+diffuse = sunLight( dayLight( moonLight( diffuse, timeMidnight*nolight), timeNoon), timeSunset);
+
+#ifdef FOG
+if(FOG_CONTROL.x == 0.0){
+  diffuse += E_UNDW();
+}
 #endif
 
-diffuse.rgb *= mix(vec3(1.0),vec3(0.3,0.4,0.5)+uv1.x*vec3(0.7,0.6,0.5)*ng,shadow*(1.0-rd));
-
-
-diffuse.rgb += diffuse.rgb*pow(uv1.x*1.05,0.9)*vec3(0.6,-0.15,-0.6)*ng*
-uv1.y;
-diffuse.rgb += diffuse.rgb*pow(uv1.x*1.05,0.9)*vec3(0.6,-0.15,-0.6)*(1.0-uv1.y);
-
-diffuse.rgb = toneMap(diffuse.rgb);
-
-#ifdef LOW_PRECISION
+#ifdef FOG
 	diffuse.rgb = mix( diffuse.rgb, fogColor.rgb, fogColor.a );
-	diffuse.rgb = mix( diffuse.rgb, fogColor.rgb, moreFog );
-	diffuse.rgb = mix( diffuse.rgb, fogColor2.rgb, fdif );
-	diffuse.rgb = mix( diffuse.rgb, fogCoIor.rgb, fray );
-	diffuse.rgb = mix( diffuse.rgb, fogRcolor.rgb, rFog );
 #endif
 
 	gl_FragColor = diffuse;

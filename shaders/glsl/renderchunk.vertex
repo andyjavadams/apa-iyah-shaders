@@ -16,20 +16,18 @@
 
 #ifndef BYPASS_PIXEL_SHADER
 	varying vec4 color;
-	varying highp vec3 wpos;
-	varying highp vec3 pp;
-	varying float ng;
 #endif
 
-#ifdef LOW_PRECISION
+varying highp vec3 position;
+varying highp vec3 look;
+
+varying float flag_waterplane;
+varying float new_fog;
+
+varying vec3 screen;
+
+#ifdef FOG
 	varying vec4 fogColor;
-	varying vec4 fogCoIor;
-	varying vec4 fogColor2;
-  varying float moreFog;
-  varying float fdif;
-  varying float fray;
-  varying vec4 fogRcolor;
-	varying float rFog;
 #endif
 
 #include "uniformWorldConstants.h"
@@ -47,6 +45,27 @@ const float rB = 1.0;
 const vec3 UNIT_Y = vec3(0,1,0);
 const float DIST_DESATURATION = 56.0 / 255.0; //WARNING this value is also hardcoded in the water color, don'tchange
 
+bool getNetherMask(vec4 ambient){
+if(ambient.r > ambient.b && ambient.r < 0.5 && ambient.b < 0.05){
+return true;
+} else {
+return false;}
+}
+
+bool getTheEndMask(vec4 ambient){
+if(ambient.r > ambient.g && ambient.b > ambient.g && ambient.r < 0.05 && ambient.b < 0.05 && ambient.g < 0.05){
+return true;
+} else {
+return false;}
+}
+
+bool getUnWaterMask(vec4 ambient){
+if(ambient.b > ambient.r*2.5 &&  ambient.b*3.0 > ambient.g){
+return true;
+} else {
+return false;}
+}
+
 void main()
 {
     POS4 worldPos;
@@ -57,6 +76,21 @@ void main()
     worldPos.xyz = (POSITION.xyz * CHUNK_ORIGIN_AND_SCALE.w) + CHUNK_ORIGIN_AND_SCALE.xyz;
     worldPos.w = 1.0;
 
+    position = POSITION.xyz;
+    look = worldPos.xyz;
+    float debugfog = 0.0;
+
+float fractpos = fract(position.y);
+
+if(fractpos < 0.10 && fractpos >= 0.0 && color.r <= 0.850)
+{
+  flag_waterplane = 1.0;
+}
+else
+{
+  flag_waterplane = 0.0;
+}
+
     // Transform to view space before projection instead of all at once to avoid floating point errors
     // Not required for entities because they are already offset by camera translation before rendering
     // World position here is calculated above and can get huge
@@ -64,11 +98,7 @@ void main()
     pos = PROJ * pos;
 #endif
     gl_Position = pos;
-    
-    pp = POSITION.xyz;
-    wpos = worldPos.xyz;
-    ng = pow(max(min(1.0-FOG_COLOR.r*1.5,1.0),0.0),1.2);
-    
+    screen.st = pos.st / (pos.z + 1.0);
 
 #ifndef BYPASS_PIXEL_SHADER
     uv0 = TEXCOORD_0;
@@ -78,66 +108,53 @@ void main()
 
 ///// find distance from the camera
 
-#if defined(LOW_PRECISION) || defined(BLEND)
+#if defined(FOG) || defined(BLEND)
 	#ifdef FANCY
 		vec3 relPos = -worldPos.xyz;
-		float cameraDepth = length(relPos.y)*clamp(-wpos.y+40.0,0.0,1.0);
+		float cameraDepth = length(relPos);
 	#else
 		float cameraDepth = pos.z;
 	#endif
 #endif
 
-vec3 wave = worldPos.xyz + VIEW_POS;
+POS3 pp = worldPos.xyz + VIEW_POS.xyz;
+
+float wav1 = sin(TIME * 4.0 + pp.x+pp.z+pp.x+pp.z+pp.y) * sin(pp.z) * 0.015;
+
+highp float wav2 = 0.06*sin(6.0*(TIME*0.2+pp.x/0.25+pp.z/1.0))+0.09*sin(6.0*(TIME*0.3+pp.x/5.0-pp.z/2.0))+0.09*sin(6.0*(TIME*0.2-pp.x/7.0+pp.z/4.0));
 
 #ifdef ALPHA_TEST
- if(color.g > color.r)
- {
-  gl_Position.x += sin(TIME * 4. + wave.x + wave.y + wave.z) *.03;
- }
-#endif 
+if(color.g + color.g > color.r + color.b){
+gl_Position += wav1;
+}
+#endif
 
 ///// apply fog
 
-float dd = pow(max(min(1.0-FOG_COLOR.b*1.2,1.0),0.0),0.5);
-float ng = pow(max(min(1.0-FOG_COLOR.r*1.5,1.0),0.0),1.2);
-float rd = smoothstep(0.6, 0.34, FOG_CONTROL.x);
-
-vec4 dc = vec4(2.0,1.0,1.0, CURRENT_COLOR.a)*0.85;
-vec4 nc = vec4(0.0,0.0,0.0, CURRENT_COLOR.a ) * 0.15;
-vec4 sc = vec4(10.0,10.0,1.0, CURRENT_COLOR.a);
-vec4 rc = vec4(1.5,1.5,1.5, CURRENT_COLOR.a)+vec4(-1.5,-1.5,-1.5, CURRENT_COLOR.a)*ng;
-vec4 fog = mix(mix(mix(dc,sc,dd),nc,ng),rc,rd);	
-
-
-#ifdef LOW_PRECISION
-	float len = cameraDepth / RENDER_DISTANCE*0.;
+#ifdef FOG
+	float len = cameraDepth / RENDER_DISTANCE;
 	#ifdef ALLOW_FADE
-		len += CURRENT_COLOR.r;
+		len += RENDER_CHUNK_FOG_ALPHA;
 	#endif
 
-    fogColor.rgb = FOG_COLOR.rgb*vec3(1.0,1.0,1.5);
-    fogColor2.rgb = FOG_COLOR.rgb*vec3(1.8,1.1,0.9)+vec3(-1.8,0.6,0.9)*ng*(1.0-rd);
-    fogCoIor = fog;
- 
-	fogColor.a = clamp((len - FOG_CONTROL.x) / (FOG_CONTROL.y - FOG_CONTROL.x), 0.0, 0.45);
+    fogColor.rgb = FOG_COLOR.rgb;
+	fogColor.a = clamp((len - FOG_CONTROL.x) / (FOG_CONTROL.y - FOG_CONTROL.x), 0.0, 1.0);
 
-vec3 rel = -worldPos.xyz*0.45-0.35*ng;
-float tambahfog = length(rel.yz);
-moreFog = tambahfog / FAR_CHUNKS_DISTANCE*0.5;
+if(getNetherMask(FOG_COLOR)){
+fogColor.a = clamp((len - FOG_CONTROL.x*0.5), 0.0,1.0);
+fogColor.rgb += vec3(1.0,0.4,0.0)*1.5;
+debugfog = 1.0;
+}
 
-vec3 ray = -worldPos.xyz;
-float rray = 1.0-length(ray.yz*0.02);
-fray = clamp(rray,0.0,1.0)*length(-worldPos.x)/RENDER_DISTANCE*0.075;
-
-vec3 dir = -worldPos.xyz*0.5-0.5*ng;
-float dirf = length(dir.x);
-fdif = dirf / FAR_CHUNKS_DISTANCE*0.5;
-
-vec3 rain = -worldPos.xyz*1.15;
-float vRain = length(rain.xz);
-rFog = clamp(vRain / FAR_CHUNKS_DISTANCE*0.65,0.0,1.0)*rd;
-
-fogRcolor.rgb = FOG_COLOR.rgb*(vec3(1.8,2.2,2.2)*1.26)*rd;
+if(getUnWaterMask(FOG_COLOR)){
+if(debugfog==0.0){
+fogColor.a = clamp((len - FOG_CONTROL.x), 0.0,0.3);
+fogColor.rgb /= FOG_COLOR.rgb;
+fogColor.rgb *= vec3(0.1,0.35,0.4);
+}
+if(uv1.y<0.8749){
+gl_Position.x += wav1;
+}}
 #endif
 
 ///// blended layer (mostly water) magic
@@ -164,8 +181,14 @@ fogRcolor.rgb = FOG_COLOR.rgb*(vec3(1.8,2.2,2.2)*1.26)*rd;
 	}
 #endif
 
+vec3 rel = -worldPos.xyz*0.5;
+float addfog = length(rel);
+float RD = 0.5;
+if(getTheEndMask(FOG_COLOR)){RD = 0.10;}
+new_fog = addfog / FAR_CHUNKS_DISTANCE*RD;
+
 #ifndef BYPASS_PIXEL_SHADER
-	#ifndef LOW_PRECISION
+	#ifndef FOG
 		// If the FOG_COLOR isn't used, the reflection on NVN fails to compute the correct size of the constant buffer as the uniform will also be gone from the reflection data
 		color.rgb += FOG_COLOR.rgb * 0.000001;
 	#endif
